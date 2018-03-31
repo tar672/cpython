@@ -1165,6 +1165,10 @@ symtable_visit_stmt(struct symtable *st, stmt_ty s)
         VISIT_SEQ(st, expr, s->v.Assign.targets);
         VISIT(st, expr, s->v.Assign.value);
         break;
+    case UnwrappedAssign_kind:
+        VISIT_SEQ(st, expr, s->v.UnwrappedAssign.targets);
+        VISIT(st, expr, s->v.UnwrappedAssign.value);
+        break;
     case AnnAssign_kind:
         if (s->v.AnnAssign.target->kind == Name_kind) {
             expr_ty e_name = s->v.AnnAssign.target;

@@ -83,6 +83,11 @@ static char *Assign_fields[]={
     "targets",
     "value",
 };
+static PyTypeObject *UnwrappedAssign_type;
+static char *UnwrappedAssign_fields[]={
+    "targets",
+    "value",
+};
 static PyTypeObject *AugAssign_type;
 _Py_IDENTIFIER(target);
 _Py_IDENTIFIER(op);
@@ -873,6 +878,9 @@ static int init_types(void)
     if (!Delete_type) return 0;
     Assign_type = make_type("Assign", stmt_type, Assign_fields, 2);
     if (!Assign_type) return 0;
+    UnwrappedAssign_type = make_type("UnwrappedAssign", stmt_type,
+                                     UnwrappedAssign_fields, 2);
+    if (!UnwrappedAssign_type) return 0;
     AugAssign_type = make_type("AugAssign", stmt_type, AugAssign_fields, 3);
     if (!AugAssign_type) return 0;
     AnnAssign_type = make_type("AnnAssign", stmt_type, AnnAssign_fields, 4);
@@ -1377,6 +1385,27 @@ Assign(asdl_seq * targets, expr_ty value, int lineno, int col_offset, PyArena
     p->kind = Assign_kind;
     p->v.Assign.targets = targets;
     p->v.Assign.value = value;
+    p->lineno = lineno;
+    p->col_offset = col_offset;
+    return p;
+}
+
+stmt_ty
+UnwrappedAssign(asdl_seq * targets, expr_ty value, int lineno, int col_offset,
+                PyArena *arena)
+{
+    stmt_ty p;
+    if (!value) {
+        PyErr_SetString(PyExc_ValueError,
+                        "field value is required for UnwrappedAssign");
+        return NULL;
+    }
+    p = (stmt_ty)PyArena_Malloc(arena, sizeof(*p));
+    if (!p)
+        return NULL;
+    p->kind = UnwrappedAssign_kind;
+    p->v.UnwrappedAssign.targets = targets;
+    p->v.UnwrappedAssign.value = value;
     p->lineno = lineno;
     p->col_offset = col_offset;
     return p;
@@ -2772,6 +2801,20 @@ ast2obj_stmt(void* _o)
             goto failed;
         Py_DECREF(value);
         value = ast2obj_expr(o->v.Assign.value);
+        if (!value) goto failed;
+        if (_PyObject_SetAttrId(result, &PyId_value, value) == -1)
+            goto failed;
+        Py_DECREF(value);
+        break;
+    case UnwrappedAssign_kind:
+        result = PyType_GenericNew(UnwrappedAssign_type, NULL, NULL);
+        if (!result) goto failed;
+        value = ast2obj_list(o->v.UnwrappedAssign.targets, ast2obj_expr);
+        if (!value) goto failed;
+        if (_PyObject_SetAttrId(result, &PyId_targets, value) == -1)
+            goto failed;
+        Py_DECREF(value);
+        value = ast2obj_expr(o->v.UnwrappedAssign.value);
         if (!value) goto failed;
         if (_PyObject_SetAttrId(result, &PyId_value, value) == -1)
             goto failed;
@@ -4723,6 +4766,61 @@ obj2ast_stmt(PyObject* obj, stmt_ty* out, PyArena* arena)
             Py_CLEAR(tmp);
         }
         *out = Assign(targets, value, lineno, col_offset, arena);
+        if (*out == NULL) goto failed;
+        return 0;
+    }
+    isinstance = PyObject_IsInstance(obj, (PyObject*)UnwrappedAssign_type);
+    if (isinstance == -1) {
+        return 1;
+    }
+    if (isinstance) {
+        asdl_seq* targets;
+        expr_ty value;
+
+        if (_PyObject_LookupAttrId(obj, &PyId_targets, &tmp) < 0) {
+            return 1;
+        }
+        if (tmp == NULL) {
+            PyErr_SetString(PyExc_TypeError, "required field \"targets\" missing from UnwrappedAssign");
+            return 1;
+        }
+        else {
+            int res;
+            Py_ssize_t len;
+            Py_ssize_t i;
+            if (!PyList_Check(tmp)) {
+                PyErr_Format(PyExc_TypeError, "UnwrappedAssign field \"targets\" must be a list, not a %.200s", tmp->ob_type->tp_name);
+                goto failed;
+            }
+            len = PyList_GET_SIZE(tmp);
+            targets = _Py_asdl_seq_new(len, arena);
+            if (targets == NULL) goto failed;
+            for (i = 0; i < len; i++) {
+                expr_ty val;
+                res = obj2ast_expr(PyList_GET_ITEM(tmp, i), &val, arena);
+                if (res != 0) goto failed;
+                if (len != PyList_GET_SIZE(tmp)) {
+                    PyErr_SetString(PyExc_RuntimeError, "UnwrappedAssign field \"targets\" changed size during iteration");
+                    goto failed;
+                }
+                asdl_seq_SET(targets, i, val);
+            }
+            Py_CLEAR(tmp);
+        }
+        if (_PyObject_LookupAttrId(obj, &PyId_value, &tmp) < 0) {
+            return 1;
+        }
+        if (tmp == NULL) {
+            PyErr_SetString(PyExc_TypeError, "required field \"value\" missing from UnwrappedAssign");
+            return 1;
+        }
+        else {
+            int res;
+            res = obj2ast_expr(tmp, &value, arena);
+            if (res != 0) goto failed;
+            Py_CLEAR(tmp);
+        }
+        *out = UnwrappedAssign(targets, value, lineno, col_offset, arena);
         if (*out == NULL) goto failed;
         return 0;
     }
@@ -8266,6 +8364,8 @@ PyInit__ast(void)
         NULL;
     if (PyDict_SetItemString(d, "Assign", (PyObject*)Assign_type) < 0) return
         NULL;
+    if (PyDict_SetItemString(d, "UnwrappedAssign",
+        (PyObject*)UnwrappedAssign_type) < 0) return NULL;
     if (PyDict_SetItemString(d, "AugAssign", (PyObject*)AugAssign_type) < 0)
         return NULL;
     if (PyDict_SetItemString(d, "AnnAssign", (PyObject*)AnnAssign_type) < 0)

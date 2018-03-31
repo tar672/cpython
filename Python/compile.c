@@ -183,6 +183,7 @@ static int compiler_visit_keyword(struct compiler *, keyword_ty);
 static int compiler_visit_expr(struct compiler *, expr_ty);
 static int compiler_augassign(struct compiler *, stmt_ty);
 static int compiler_annassign(struct compiler *, stmt_ty);
+static int compiler_unwrappedassign(struct compiler *, stmt_ty);
 static int compiler_visit_slice(struct compiler *, slice_ty,
                                 expr_context_ty);
 
@@ -3069,6 +3070,8 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
         return compiler_augassign(c, s);
     case AnnAssign_kind:
         return compiler_annassign(c, s);
+    case UnwrappedAssign_kind:
+        return compiler_unwrappedassign(c, s);
     case For_kind:
         return compiler_for(c, s);
     case While_kind:
@@ -3476,6 +3479,21 @@ are_all_items_const(asdl_seq *seq, Py_ssize_t begin, Py_ssize_t end)
         expr_ty key = (expr_ty)asdl_seq_GET(seq, i);
         if (key == NULL || !is_const(key))
             return 0;
+    }
+    return 1;
+}
+
+static int
+compiler_unwrappedassign(struct compiler *c, stmt_ty s) {
+    expr_ty variable;
+
+    for (int variable_idx = 0; variable_idx < asdl_seq_LEN(s->v.UnwrappedAssign.targets); variable_idx++) {
+        variable = (expr_ty) asdl_seq_GET(s->v.UnwrappedAssign.targets, variable_idx);
+
+        VISIT(c, expr, s->v.UnwrappedAssign.value);
+        ADDOP_O(c, LOAD_CONST, variable->v.Name.id, consts);
+        ADDOP(c, BINARY_SUBSCR)
+        VISIT(c, expr, variable);
     }
     return 1;
 }

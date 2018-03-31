@@ -2899,7 +2899,7 @@ ast_for_expr_stmt(struct compiling *c, const node *n)
 {
     REQ(n, expr_stmt);
     /* expr_stmt: testlist_star_expr (annassign | augassign (yield_expr|testlist) |
-                            ('=' (yield_expr|testlist_star_expr))*)
+                            ('=' (yield_expr|testlist_star_expr|unwrappedassign))*)
        annassign: ':' test ['=' test]
        testlist_star_expr: (test|star_expr) (',' test|star_expr)* [',']
        augassign: '+=' | '-=' | '*=' | '@=' | '/=' | '%=' | '&=' | '|=' | '^='
@@ -3021,6 +3021,26 @@ ast_for_expr_stmt(struct compiling *c, const node *n)
             return AnnAssign(expr1, expr2, expr3, simple,
                              LINENO(n), n->n_col_offset, c->c_arena);
         }
+    } else if (TYPE(CHILD(n, 2)) == unwrappedassign) {
+        node *target_node = CHILD(n, 0);
+        asdl_seq *targets = _Py_asdl_seq_new((NCH(target_node) + 1)/2, c->c_arena);
+        for (int i = 0; i < NCH(target_node); i+=2) {
+            expr_ty e;
+            e = ast_for_expr(c, CHILD(target_node, i));
+
+            if (!set_context(c, e, Store, target_node))
+                return NULL;
+
+            if (e->kind != Name_kind) {
+                ast_error(c, n,
+                          "illegal target for unpacked assignment");
+            }
+
+            asdl_seq_SET(targets, i/2, e);
+        }
+
+        expr_ty expression = ast_for_expr(c, CHILD(CHILD(n, 2), 1));
+        return UnwrappedAssign(targets, expression, LINENO(n), n->n_col_offset, c->c_arena);
     }
     else {
         int i;
